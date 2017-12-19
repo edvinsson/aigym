@@ -80,19 +80,20 @@ class Learner(BaseLearner):
 
 class NeuralLearner(BaseLearner):
 
-    def __init__(self, observations,actions,epsilon,lr=0.001,
+    def __init__(self, observations,actions,explorer,lr=0.001,
                  gamma=0.95):
         super(NeuralLearner, self).__init__()
         self._build_model(observations,lr,actions)
-        self.epsilon = epsilon
+        assert isinstance(explorer, ExploreFunc)
+        self.explorer = explorer
         self.gamma = gamma
         self.obs_n = observations
         self.actions_n = actions
 
     def _build_model(self,n,lr,actions):
         self.model = Sequential()
-        self.model.add(Dense(32,input_dim=n,activation='tanh'))
-        self.model.add(Dense(32,activation='tanh'))
+        self.model.add(Dense(16,input_dim=n,activation='tanh'))
+        self.model.add(Dense(16,activation='tanh'))
         self.model.add(Dense(actions))
         self.model.compile(Adam(lr),'mse')
 
@@ -100,11 +101,7 @@ class NeuralLearner(BaseLearner):
         observation = observation.reshape(-1, self.obs_n)
         self.prev_observation = observation
         self.score = self.model.predict(observation)[0]
-        n = np.random.uniform(0,1,1)
-        if n > self.epsilon.rate:
-            self.action = np.argmax(self.score)
-        else:
-            self.action = np.random.randint(0,2,1)[0]
+        self.action = self.explorer(self.score)
         return self.action
 
     def expected_q(self, observation):
@@ -258,6 +255,42 @@ class Max(object):
     @property
     def value(self):
         return self._value
+
+
+class ExploreFunc(object):
+
+    def __call__(self, score):
+        raise NotImplementedError("Explore func most be callable")
+
+
+class EpsilonGreedy(ExploreFunc):
+
+    def __init__(self, epsilon):
+        super(EpsilonGreedy, self).__init__()
+        assert isinstance(epsilon, Rate)
+        self.epsilon = epsilon
+
+    def __call__(self, score):
+        n = np.random.uniform(0, 1, 1)
+        if n > self.epsilon.rate:
+            action = np.argmax(score)
+        else:
+            action = np.random.randint(0, len(score), 1)[0]
+        return action
+
+
+class Boltzmann(ExploreFunc):
+
+    def __init__(self, T):
+        super(Boltzmann, self).__init__()
+        assert isinstance(T, Rate)
+        self.T = T
+
+    def __call__(self, score):
+        t = self.T.rate
+        p = np.exp(score/t)/np.exp(score/t).sum()
+        return np.argmax(np.random.multinomial(1,p))
+
 
 
 def nothing(observations):
